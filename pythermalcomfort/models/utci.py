@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 import numpy as np
 from numba import float64, vectorize
+from numpy.typing import NDArray
 
+from pythermalcomfort._internal.validation import _mapping, _valid_range
 from pythermalcomfort.classes_input import NumericInput, UTCIInputs
 from pythermalcomfort.classes_return import UTCI
-from pythermalcomfort.shared_functions import mapping, valid_range
 from pythermalcomfort.utilities import Units, units_converter
 
 
@@ -69,7 +73,7 @@ def utci(
         print(result.stress_category)  # "no thermal stress"
 
         result = utci(tdb=[25, 40], tr=25, v=1.0, rh=50)
-        print(result.utci)  # [24.6, 40.6]
+        print(result.utci)  # [24.6, 40.4]
     """
     # Validate inputs using the UtciInputs class
     UTCIInputs(
@@ -100,7 +104,7 @@ def utci(
             (-1.8680009 * np.power(10.0, -13)),
         ]
         tk = t_db + 273.15  # air temp in K
-        es = 2.7150305 * np.log1p(tk)
+        es = 2.7150305 * np.log(tk)
         for count, i in enumerate(g):
             es = es + (i * np.power(tk, count - 2))
         es = np.exp(es) * 0.01  # convert Pa to hPa
@@ -114,9 +118,9 @@ def utci(
 
     # Checks that inputs are within the bounds accepted by the model if not return nan
     if limit_inputs:
-        tdb_valid = valid_range(tdb, (-50.0, 50.0))
-        diff_valid = valid_range(tr - tdb, (-30.0, 70.0), param_name="tr - tdb")
-        v_valid = valid_range(v, (0.5, 17.0))
+        tdb_valid = _valid_range(tdb, (-50.0, 50.0))
+        diff_valid = _valid_range(tr - tdb, (-30.0, 70.0), param_name="tr - tdb")
+        v_valid = _valid_range(v, (0.5, 17.0))
         all_valid = ~(np.isnan(tdb_valid) | np.isnan(diff_valid) | np.isnan(v_valid))
         utci_approx = np.where(all_valid, utci_approx, np.nan)
 
@@ -148,24 +152,41 @@ def utci(
 
     return UTCI(
         utci=utci_approx,
-        stress_category=mapping(utci_si, stress_categories),
+        stress_category=_mapping(utci_si, stress_categories),
     )
 
 
-@vectorize(
-    [
-        float64(
-            float64,
-            float64,
-            float64,
-            float64,
-        ),
+@cast(
+    Callable[
+        [Callable[[float, float, float, float], float]],
+        Callable[
+            [
+                float | NDArray[np.float64],
+                float | NDArray[np.float64],
+                float | NDArray[np.float64],
+                float | NDArray[np.float64],
+            ],
+            np.float64 | NDArray[np.float64],
+        ],
     ],
-    cache=True,
+    vectorize(
+        [
+            float64(
+                float64,
+                float64,
+                float64,
+                float64,
+            ),
+        ],
+        cache=True,
+    ),
 )
 def _utci_optimized(
-    tdb: float64, v: float64, delta_t_tr: float64, pa: float64
-) -> float64:
+    tdb: float,
+    v: float,
+    delta_t_tr: float,
+    pa: float,
+) -> float:
     return (
         tdb
         + 0.607562052

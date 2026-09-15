@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 import numpy as np
 from numba import float64, vectorize
+from numpy.typing import NDArray
 
+from pythermalcomfort._internal.validation import HEAT_INDEX_STRESS_CATEGORIES, _mapping
 from pythermalcomfort.classes_input import HIInputs, NumericInput
 from pythermalcomfort.classes_return import HI
-from pythermalcomfort.shared_functions import HEAT_INDEX_STRESS_CATEGORIES, mapping
-from pythermalcomfort.utilities import psy_ta_rh
+from pythermalcomfort.psychrometrics import psy_ta_rh
 
 
 def heat_index_schoen(
@@ -67,14 +71,26 @@ def heat_index_schoen(
     if round_output:
         hi = np.around(hi, 1)
 
-    return HI(hi=hi, stress_category=mapping(hi, heat_index_categories))
+    return HI(hi=hi, stress_category=_mapping(hi, heat_index_categories))
 
 
-@vectorize(
-    [
-        float64(float64, float64),
+@cast(
+    Callable[
+        [Callable[[float, float], float]],
+        Callable[
+            [
+                float | NDArray[np.float64],
+                float | NDArray[np.float64],
+            ],
+            np.float64 | NDArray[np.float64],
+        ],
     ],
-    cache=True,
+    vectorize(
+        [
+            float64(float64, float64),
+        ],
+        cache=True,
+    ),
 )
-def _schoen_heat_index_optimized(tdb: float64, t_dew: float64) -> float64:
+def _schoen_heat_index_optimized(tdb: float, t_dew: float) -> float:
     return tdb - 1.0799 * np.exp(0.03755 * tdb) * (1 - np.exp(0.0801 * (t_dew - 14)))
